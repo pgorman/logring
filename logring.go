@@ -6,18 +6,26 @@ import (
 	"io"
 	"os"
 	"strings"
+	"sync"
 )
 
 var count int
-var logCh chan string
+var countMutex sync.Mutex
 var rl *ringLog
+var rlMutex sync.Mutex
 
 type ringLog struct {
 	*ring.Ring
 }
 
 func (r *ringLog) Write(p []byte) (int, error) {
-	logCh <- string(p)
+	rlMutex.Lock()
+	rl.Ring.Value = string(p)
+	rl.Ring = rl.Ring.Next()
+	rlMutex.Unlock()
+	countMutex.Lock()
+	count++
+	countMutex.Unlock()
 	return len(p), nil
 }
 
@@ -41,14 +49,6 @@ func Recent() []string {
 // It saves the the most recent log entries, while also writing to Stderr.
 // The ringSize argument sets the maximum number of messages to keep.
 func Writer(ringSize int) io.Writer {
-	logCh = make(chan string)
 	rl = &ringLog{ring.New(ringSize)}
-	go func() {
-		for {
-			rl.Ring.Value = <-logCh
-			rl.Ring = rl.Ring.Next()
-			count++
-		}
-	}()
 	return io.MultiWriter(os.Stderr, rl)
 }
